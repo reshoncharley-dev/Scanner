@@ -1,7 +1,55 @@
 {
-  // These tasks will run in order when initializing your CodeSandbox project.
-  "setupTasks": [],
+    // These tasks will run in order when initializing your CodeSandbox project.
+    "setupTasks": [
+      {
+        "name": "Install Dependencies",
+        "command": "pnpm install"
+      }
+    ],
 
-  // These tasks can be run from CodeSandbox. Running one will open a log in the app.
-  "tasks": {}
-}
+    // These tasks can be run from CodeSandbox. Running one will open a log in the app.
+    "tasks": {
+      "dev": {
+        "name": "Start Dev Server",
+        "command": "pnpm run dev",
+        "runAtStart": true,
+        "preview": {
+          "port": 3005
+        },
+        "restartOn": {
+          "files": ["./pnpm-lock.yaml"]
+        }
+      },
+      "build": {
+        "name": "Build",
+        "command": "pnpm run build",
+        "runAtStart": false
+      },
+      "preview": {
+        "name": "Preview Build",
+        "command": "pnpm run preview",
+        "runAtStart": false
+      },
+      "lint": {
+        "name": "Lint",
+        "command": "pnpm run lint",
+        "runAtStart": false
+      },
+      "install": {
+        "name": "Install Dependencies",
+        "command": "pnpm install",
+        "restartOn": {
+          "files": ["./package.json"]
+        }
+      },
+      "sqlite-gui": {
+        "name": "SQLite GUI",
+        "command": "pnpm run sqlite-gui",
+        "runAtStart": true,
+        "preview": {
+          "port": 8080
+        }
+      }
+    }
+  }
+

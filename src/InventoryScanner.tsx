@@ -3076,13 +3076,15 @@ export default function InventoryScanner() {
   }, [updateGoogleState]);
 
   const generatePickRun = useCallback(() => {
-    const unfoundItems = inventoryList.filter(
-      (item) => !isItemFound(item) && matchesDeployReasonFilter(item, deployReasonFilter)
+    // Include ALL items matching the deploy reason filter (not just unfound),
+    // so scanned items remain visible in the pick run with a "found" state.
+    const filteredItems = inventoryList.filter(
+      (item) => matchesDeployReasonFilter(item, deployReasonFilter)
     );
-    if (unfoundItems.length === 0) return;
+    if (filteredItems.length === 0) return;
     const zoneGroups: Record<string, PickRunZone> = {};
     const unmapped: InventoryItem[] = [];
-    unfoundItems.forEach((item) => {
+    filteredItems.forEach((item) => {
       const org = getColumnValue(item, "organization");
       const entries = getZonesForOrg(org);
       if (entries.length > 0) {
@@ -3122,7 +3124,7 @@ export default function InventoryScanner() {
     setTimeout(() => {
       handScannerInputRef.current?.focus();
     }, 100);
-  }, [inventoryList, isItemFound, deployReasonFilter]);
+  }, [inventoryList, deployReasonFilter]);
 
   useEffect(() => {
     handScannerInputRef.current?.focus();
@@ -3208,13 +3210,20 @@ export default function InventoryScanner() {
     return filteredByReason.filter((item) => !isItemFound(item)).length;
   }, [filteredByReason, isItemFound]);
 
+  // Only regenerate pick run when deploy reason filter changes while in pick run mode.
+  // We intentionally exclude generatePickRun from deps to avoid re-triggering on every
+  // scan (which mutates inventoryList and would wipe notHereItems).
+  const previousDeployReasonFilter = useRef(deployReasonFilter);
   useEffect(() => {
-    if (pickRunMode) {
+    if (pickRunMode && previousDeployReasonFilter.current !== deployReasonFilter) {
+      previousDeployReasonFilter.current = deployReasonFilter;
       generatePickRun();
-    } else {
+    }
+    if (!pickRunMode) {
       setPickRunData(null);
     }
-  }, [deployReasonFilter, pickRunMode, generatePickRun]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deployReasonFilter, pickRunMode]);
 
   const styles: Record<string, React.CSSProperties> = {
     container: {

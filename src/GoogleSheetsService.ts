@@ -103,15 +103,29 @@ export async function getSpreadsheetInfo(spreadsheetId: string): Promise<Spreads
 
 export async function readSheetData(spreadsheetId: string, sheetTitle: string): Promise<SheetData> {
   if (!accessToken) throw new Error("Not authenticated");
-  const resp = await g().values.get({ spreadsheetId, range: `'${sheetTitle}'`, valueRenderOption: "UNFORMATTED_VALUE", dateTimeRenderOption: "FORMATTED_STRING" });
+  // Use FORMATTED_VALUE so serial numbers, IDs, and dates come through as
+  // display strings rather than raw numbers (e.g. 1.23E+10 vs "12300000000").
+  const resp = await g().values.get({
+    spreadsheetId,
+    range: `'${sheetTitle}'`,
+    valueRenderOption: "FORMATTED_VALUE",
+    dateTimeRenderOption: "FORMATTED_STRING",
+  });
   const values: string[][] = resp.result.values || [];
   if (values.length === 0) return { headers: [], rows: [] };
   const headers = values[0].map((h: any) => String(h).trim());
-  const rows = values.slice(1).map((row: any[]) => {
-    const rec: Record<string, string> = {};
-    headers.forEach((h, i) => { rec[h] = i < row.length ? String(row[i] ?? "") : ""; });
-    return rec;
-  });
+  const headerCount = headers.length;
+  const rows = values.slice(1)
+    .filter((row: any[]) => row && row.some((cell: any) => cell !== null && cell !== undefined && String(cell).trim() !== ""))
+    .map((row: any[]) => {
+      const rec: Record<string, string> = {};
+      // Always iterate over ALL headers, even if the row array is shorter
+      // (Google Sheets API omits trailing empty cells)
+      for (let i = 0; i < headerCount; i++) {
+        rec[headers[i]] = i < row.length ? String(row[i] ?? "") : "";
+      }
+      return rec;
+    });
   return { headers, rows };
 }
 

@@ -499,21 +499,32 @@ const getZonesForOrg = (orgName: unknown): ZoneEntry[] => {
 
 // Column name mappings
 const COLUMN_MAPPINGS: Record<string, string[]> = {
-  inventoryId: ["Inventory ID", "inventory_id", "inventoryId", "InventoryID", "inventory-id", "Asset ID"],
-  serialNumber: ["Serial Number", "serial_number", "serialNumber", "SerialNumber", "serial-number", "SN", "sn", "Serial number"],
-  productTitle: ["Product Title", "product_title", "productTitle", "ProductTitle", "product-title", "Title", "title", "Description", "description", "Product title", "product_description", "Product"],
-  organization: ["Organization", "organization", "ORGANIZATION", "Org", "org", "Company", "company", "Department", "department", "Division", "division", "Team", "team", "Group", "group", "Unit", "unit", "Location", "location", "Site", "site", "Branch", "branch", "organisation_name", "organization_name", "Organization name"],
-  deployReason: ["deploy_reason", "Deploy Reason", "deployReason", "DeployReason", "deploy-reason", "Reason", "reason", "Deployment Reason", "deployment_reason", "deploymentReason"],
-  deployStatus: ["deploy_status", "Deploy Status", "deployStatus", "DeployStatus", "deploy-status", "Status", "status"],
-  category: ["Category", "category", "Item Category", "item_category", "Product Category", "product_category"],
-  found: ["Found", "found", "FOUND", "scanned", "Scanned", "SCANNED"],
+  inventoryId: ["Inventory ID", "inventory_id", "inventoryId", "InventoryID", "inventory-id", "Asset ID", "Asset Tag", "asset_id", "asset_tag", "ID", "Inventory id", "inventory id", "Asset Id"],
+  serialNumber: ["Serial Number", "serial_number", "serialNumber", "SerialNumber", "serial-number", "SN", "sn", "Serial number", "Serial", "serial", "Serial No", "Serial no", "serial_no"],
+  productTitle: ["Product Title", "product_title", "productTitle", "ProductTitle", "product-title", "Title", "title", "Description", "description", "Product title", "product_description", "Product", "Product Name", "product_name", "Name", "name", "Item", "item", "Device", "device", "Model", "model"],
+  organization: ["Organization", "organization", "ORGANIZATION", "Org", "org", "Company", "company", "Department", "department", "Division", "division", "Team", "team", "Group", "group", "Unit", "unit", "Location", "location", "Site", "site", "Branch", "branch", "organisation_name", "organization_name", "Organization name", "Organisation", "organisation", "Client", "client", "Customer", "customer"],
+  deployReason: ["deploy_reason", "Deploy Reason", "deployReason", "DeployReason", "deploy-reason", "Reason", "reason", "Deployment Reason", "deployment_reason", "deploymentReason", "Deploy reason"],
+  deployStatus: ["deploy_status", "Deploy Status", "deployStatus", "DeployStatus", "deploy-status", "Status", "status", "Deploy status"],
+  category: ["Category", "category", "Item Category", "item_category", "Product Category", "product_category", "Type", "type", "Device Type", "device_type"],
+  found: ["Found", "found", "FOUND", "scanned", "Scanned", "SCANNED", "Checked", "checked"],
 };
 
 const getColumnValue = (item: Record<string, unknown>, columnType: string): string | null => {
   if (!item || !columnType) return null;
   const possibleNames = COLUMN_MAPPINGS[columnType] || [];
+  // First try exact key match
   for (const name of possibleNames) {
     if (item[name] !== undefined && item[name] !== null) return item[name] as string;
+  }
+  // Fallback: case-insensitive match against actual item keys
+  const itemKeys = Object.keys(item);
+  for (const name of possibleNames) {
+    const lowerName = name.toLowerCase();
+    for (const key of itemKeys) {
+      if (key.toLowerCase() === lowerName && item[key] !== undefined && item[key] !== null) {
+        return item[key] as string;
+      }
+    }
   }
   return null;
 };
@@ -521,8 +532,17 @@ const getColumnValue = (item: Record<string, unknown>, columnType: string): stri
 const setColumnValue = (item: Record<string, unknown>, columnType: string, value: unknown): Record<string, unknown> => {
   if (!item || !columnType) return item;
   const possibleNames = COLUMN_MAPPINGS[columnType] || [];
+  // Exact match first
   for (const name of possibleNames) {
     if (name in item) return { ...item, [name]: value };
+  }
+  // Case-insensitive fallback
+  const itemKeys = Object.keys(item);
+  for (const name of possibleNames) {
+    const lowerName = name.toLowerCase();
+    for (const key of itemKeys) {
+      if (key.toLowerCase() === lowerName) return { ...item, [key]: value };
+    }
   }
   if (possibleNames.length > 0) return { ...item, [possibleNames[0]]: value };
   return item;
@@ -2630,11 +2650,23 @@ export default function InventoryScanner() {
   const detectColumns = (data: Record<string, unknown>[]): Record<string, string> => {
     if (!data || data.length === 0) return {};
     const firstItem = data[0];
+    const actualKeys = Object.keys(firstItem);
     const detected: Record<string, string> = {};
     for (const [columnType, names] of Object.entries(COLUMN_MAPPINGS)) {
+      // Try exact match first
       for (const name of names) {
         if (firstItem[name] !== undefined) {
           detected[columnType] = name;
+          break;
+        }
+      }
+      if (detected[columnType]) continue;
+      // Fallback: case-insensitive match against actual keys
+      for (const name of names) {
+        const lowerName = name.toLowerCase();
+        const matchedKey = actualKeys.find((key) => key.toLowerCase() === lowerName);
+        if (matchedKey && firstItem[matchedKey] !== undefined) {
+          detected[columnType] = matchedKey;
           break;
         }
       }
@@ -2858,11 +2890,23 @@ export default function InventoryScanner() {
     const columns = (() => {
       if (!data || data.length === 0) return {};
       const firstItem = data[0];
+      const actualKeys = Object.keys(firstItem);
       const detected: Record<string, string> = {};
       for (const [columnType, names] of Object.entries(COLUMN_MAPPINGS)) {
+        // Exact match first
         for (const name of names) {
           if (firstItem[name] !== undefined) {
             detected[columnType] = name;
+            break;
+          }
+        }
+        if (detected[columnType]) continue;
+        // Case-insensitive fallback
+        for (const name of names) {
+          const lowerName = name.toLowerCase();
+          const matchedKey = actualKeys.find((key) => key.toLowerCase() === lowerName);
+          if (matchedKey && firstItem[matchedKey] !== undefined) {
+            detected[columnType] = matchedKey;
             break;
           }
         }

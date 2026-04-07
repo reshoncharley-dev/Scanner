@@ -2089,14 +2089,14 @@ const PickRunView: React.FC<PickRunViewProps> = ({
                         padding: "10px 12px",
                         marginBottom: "6px",
                         borderRadius: "8px",
-                        backgroundColor: isFound ? COLORS.successBg : isNotHere ? "#f8f8f8" : COLORS.background,
-                        border: `1px solid ${isFound ? COLORS.success + "30" : isNotHere ? "#e0e0e0" : COLORS.border}`,
+                        backgroundColor: isFound ? COLORS.successBg : isNotHere ? COLORS.errorBg : COLORS.background,
+                        border: `1px solid ${isFound ? COLORS.success + "30" : isNotHere ? COLORS.error + "30" : COLORS.border}`,
                         display: "flex",
                         alignItems: "flex-start",
                         flexWrap: "wrap",
                         gap: "8px",
-                        opacity: isFound ? 0.7 : isNotHere ? 0.45 : 1,
-                        textDecoration: isFound ? "line-through" : "none",
+                        opacity: isFound ? 0.7 : isNotHere ? 0.7 : 1,
+                        textDecoration: isFound || isNotHere ? "line-through" : "none",
                       }}
                     >
                       <div style={{ flex: 1, minWidth: 0 }}>

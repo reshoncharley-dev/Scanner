@@ -11,6 +11,7 @@
     "sqlite-gui": "node sqlite-gui.cjs"
   },
   "dependencies": {
+    "html5-qrcode": "^2.3.8",
     "papaparse": "^5.5.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",

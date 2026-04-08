@@ -7,6 +7,7 @@ import React, {
   memo,
 } from "react";
 import Papa from "papaparse";
+import { Html5Qrcode } from "html5-qrcode";
 import * as GSheets from "./GoogleSheetsService";
 
 // ============================================================
@@ -740,6 +741,235 @@ const GoogleSheetsIcon = () => (
     <path fill="#1b5e20" d="M22 23H24V40H22z" />
   </svg>
 );
+
+const CameraIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 15.2c1.77 0 3.2-1.43 3.2-3.2S13.77 8.8 12 8.8 8.8 10.23 8.8 12s1.43 3.2 3.2 3.2zm9-8.6h-3.45l-1.81-2H8.26l-1.81 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm0 14H3V8.6h4.05l1.81-2h6.28l1.81 2H21v12z" />
+  </svg>
+);
+
+const KeyboardIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" />
+  </svg>
+);
+
+// ============================================================
+// Camera Barcode Scanner Component
+// ============================================================
+interface CameraScannerProps {
+  onScanSuccess: (code: string) => void;
+  isActive: boolean;
+  accentColor?: string;
+}
+
+const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, accentColor = COLORS.primary }) => {
+  const scannerRef = useRef<Html5Qrcode | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const lastScannedRef = useRef<string>("");
+  const lastScannedTimeRef = useRef<number>(0);
+  const scannerElementId = useRef(`camera-scanner-${Math.random().toString(36).slice(2, 9)}`);
+
+  useEffect(() => {
+    if (!isActive) {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {}).finally(() => {
+          scannerRef.current?.clear();
+          scannerRef.current = null;
+        });
+      }
+      return;
+    }
+
+    const startScanner = async () => {
+      try {
+        const scanner = new Html5Qrcode(scannerElementId.current);
+        scannerRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: "environment" },
+          {
+            fps: 10,
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.5,
+          },
+          (decodedText) => {
+            const now = Date.now();
+            // Debounce: ignore same code scanned within 2 seconds
+            if (decodedText === lastScannedRef.current && now - lastScannedTimeRef.current < 2000) {
+              return;
+            }
+            lastScannedRef.current = decodedText;
+            lastScannedTimeRef.current = now;
+            onScanSuccess(decodedText);
+            if ("vibrate" in navigator) navigator.vibrate(VIBRATE_DURATION);
+          },
+          () => {}
+        );
+      } catch (error) {
+        console.warn("Camera scanner failed to start:", error);
+      }
+    };
+
+    startScanner();
+
+    return () => {
+      if (scannerRef.current) {
+        scannerRef.current.stop().catch(() => {}).finally(() => {
+          scannerRef.current?.clear();
+          scannerRef.current = null;
+        });
+      }
+    };
+  }, [isActive, onScanSuccess]);
+
+  if (!isActive) return null;
+
+  return (
+    <div
+      ref={containerRef}
+      style={{
+        marginBottom: "16px",
+        borderRadius: "16px",
+        overflow: "hidden",
+        border: `2px solid ${accentColor}`,
+        backgroundColor: "#000",
+        position: "relative",
+      }}
+    >
+      <div
+        id={scannerElementId.current}
+        style={{ width: "100%", minHeight: "240px" }}
+      />
+      <div
+        style={{
+          position: "absolute",
+          bottom: "8px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          backgroundColor: "rgba(0,0,0,0.6)",
+          color: "#fff",
+          padding: "6px 14px",
+          borderRadius: "20px",
+          fontSize: "12px",
+          fontWeight: "500",
+          pointerEvents: "none",
+        }}
+      >
+        Point camera at barcode
+      </div>
+    </div>
+  );
+};
+
+// ============================================================
+// Scanner Input with Camera Toggle
+// ============================================================
+interface ScannerInputProps {
+  scannerValue: string;
+  onScannerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onScannerKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onCameraScan: (code: string) => void;
+  handScannerInputRef: React.RefObject<HTMLInputElement | null>;
+  placeholder?: string;
+  accentColor?: string;
+  inputStyle?: React.CSSProperties;
+}
+
+const ScannerInput: React.FC<ScannerInputProps> = ({
+  scannerValue,
+  onScannerChange,
+  onScannerKeyDown,
+  onCameraScan,
+  handScannerInputRef,
+  placeholder = "Ready to scan... (press Enter after scan)",
+  accentColor = COLORS.primary,
+  inputStyle = {},
+}) => {
+  const [cameraMode, setCameraMode] = useState(false);
+
+  return (
+    <div>
+      <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
+        <button
+          onClick={() => setCameraMode(false)}
+          style={{
+            flex: 1,
+            padding: "10px 16px",
+            fontSize: "13px",
+            fontWeight: "600",
+            borderRadius: "10px",
+            border: `2px solid ${!cameraMode ? accentColor : COLORS.border}`,
+            backgroundColor: !cameraMode ? accentColor + "15" : COLORS.surface,
+            color: !cameraMode ? accentColor : COLORS.textSecondary,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <KeyboardIcon /> Manual / Scanner
+        </button>
+        <button
+          onClick={() => setCameraMode(true)}
+          style={{
+            flex: 1,
+            padding: "10px 16px",
+            fontSize: "13px",
+            fontWeight: "600",
+            borderRadius: "10px",
+            border: `2px solid ${cameraMode ? accentColor : COLORS.border}`,
+            backgroundColor: cameraMode ? accentColor + "15" : COLORS.surface,
+            color: cameraMode ? accentColor : COLORS.textSecondary,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: "8px",
+            transition: "all 0.2s ease",
+          }}
+        >
+          <CameraIcon /> Phone Camera
+        </button>
+      </div>
+
+      {cameraMode ? (
+        <CameraScanner
+          onScanSuccess={onCameraScan}
+          isActive={cameraMode}
+          accentColor={accentColor}
+        />
+      ) : (
+        <input
+          ref={handScannerInputRef}
+          type="text"
+          aria-label="Scanner input"
+          value={scannerValue}
+          onChange={onScannerChange}
+          onKeyDown={onScannerKeyDown}
+          placeholder={placeholder}
+          autoComplete="off"
+          spellCheck={false}
+          style={{
+            width: "100%",
+            padding: "14px",
+            fontSize: "15px",
+            borderRadius: "12px",
+            border: `2px solid ${accentColor}`,
+            backgroundColor: COLORS.surface,
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+            boxShadow: `0 0 0 3px ${accentColor}15`,
+            boxSizing: "border-box",
+            marginBottom: "16px",
+            ...inputStyle,
+          }}
+        />
+      )}
+    </div>
+  );
+};
 
 const CloudSyncIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -1730,12 +1960,12 @@ interface PickRunViewProps {
   scannerValue: string;
   onScannerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onScannerKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  onCameraScan: (code: string) => void;
   handScannerInputRef: React.RefObject<HTMLInputElement | null>;
   lastScannedCode: string;
   lastScanFound: boolean;
   notHereItems: Record<string, boolean>;
   onNotHere: (key: string, isNotHere: boolean, itemId: string) => void;
-
 }
 
 const PickRunView: React.FC<PickRunViewProps> = ({
@@ -1749,6 +1979,7 @@ const PickRunView: React.FC<PickRunViewProps> = ({
   scannerValue,
   onScannerChange,
   onScannerKeyDown,
+  onCameraScan,
   handScannerInputRef,
   lastScannedCode,
   lastScanFound,
@@ -1937,27 +2168,14 @@ const PickRunView: React.FC<PickRunViewProps> = ({
       </div>
 
       <div style={{ marginBottom: "16px" }}>
-        <input
-          ref={handScannerInputRef}
-          type="text"
-          aria-label="Pick run scanner input"
-          value={scannerValue}
-          onChange={onScannerChange}
-          onKeyDown={onScannerKeyDown}
+        <ScannerInput
+          scannerValue={scannerValue}
+          onScannerChange={onScannerChange}
+          onScannerKeyDown={onScannerKeyDown}
+          onCameraScan={onCameraScan}
+          handScannerInputRef={handScannerInputRef}
           placeholder="Scan items as you walk..."
-          autoComplete="off"
-          spellCheck={false}
-          style={{
-            width: "100%",
-            padding: "14px",
-            fontSize: "15px",
-            borderRadius: "12px",
-            border: `2px solid ${COLORS.pickRun}`,
-            backgroundColor: COLORS.surface,
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
-            boxShadow: "0 0 0 3px rgba(249, 115, 22, 0.15)",
-            boxSizing: "border-box",
-          }}
+          accentColor={COLORS.pickRun}
         />
       </div>
 
@@ -3512,6 +3730,7 @@ export default function InventoryScanner() {
             scannerValue={scannerValue}
             onScannerChange={(e) => setScannerValue(e.target.value)}
             onScannerKeyDown={handleHandScannerKeyDown}
+            onCameraScan={processScannedCode}
             handScannerInputRef={handScannerInputRef}
             lastScannedCode={lastScannedCode}
             lastScanFound={lastScanFound}
@@ -3545,17 +3764,14 @@ export default function InventoryScanner() {
               <SearchIcon /> Scan Items
             </div>
 
-            <input
-              ref={handScannerInputRef}
-              type="text"
-              aria-label="Hand scanner input"
-              value={scannerValue}
-              onChange={(e) => setScannerValue(e.target.value)}
-              onKeyDown={handleHandScannerKeyDown}
+            <ScannerInput
+              scannerValue={scannerValue}
+              onScannerChange={(e) => setScannerValue(e.target.value)}
+              onScannerKeyDown={handleHandScannerKeyDown}
+              onCameraScan={processScannedCode}
+              handScannerInputRef={handScannerInputRef}
               placeholder="Ready to scan... (press Enter after scan)"
-              autoComplete="off"
-              spellCheck={false}
-              style={styles.scannerInput}
+              accentColor={COLORS.primary}
             />
 
             <SimpleScanResult scannedCode={lastScannedCode} found={lastScanFound} />

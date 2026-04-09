@@ -582,7 +582,7 @@ const safeValue = (item: Record<string, unknown>, columnType: string): string =>
 
 const formatDeployReason = (value: unknown): string => {
   if (!value) return "N/A";
-  const normalizedValue = (value as string).toString().trim().toUpperCase();
+  const normalizedValue = (value as string).toString().trim().toUpperCase().replace(/\s+/g, "_");
   if (normalizedValue === "RECYCLING_REQUESTED") return "Recycling Requested";
   if (normalizedValue === "MARKED_FOR_DESTRUCTION") return "Marked For Destruction";
   if (normalizedValue === "OUT_FOR_DESTRUCTION") return "Out For Destruction";
@@ -630,7 +630,7 @@ const parseBoolean = (value: unknown): boolean => {
 };
 
 const normalizeDeployReason = (value: unknown): string =>
-  (value as string)?.toString().trim().toUpperCase() || "";
+  (value as string)?.toString().trim().toUpperCase().replace(/\s+/g, "_") || "";
 
 const matchesDeployReasonFilter = (item: Record<string, unknown>, filter: string): boolean => {
   if (!filter || filter === "ALL") return true;

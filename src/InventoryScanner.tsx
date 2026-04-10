@@ -755,7 +755,7 @@ const KeyboardIcon = () => (
 );
 
 // ============================================================
-// Camera Barcode Scanner Component
+// Camera Barcode Scanner Component (iOS Safari compatible)
 // ============================================================
 interface CameraScannerProps {
   onScanSuccess: (code: string) => void;
@@ -764,110 +764,147 @@ interface CameraScannerProps {
 }
 
 const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, accentColor = COLORS.primary }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const lastScannedRef = useRef<string>("");
   const lastScannedTimeRef = useRef<number>(0);
-  const [scannerElementId] = useState(`camera-scanner-${Math.random().toString(36).slice(2, 9)}`);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [cameraError, setCameraError] = useState<string>("");
-
-  // Inject styles to make the html5-qrcode video preview visible
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-    const styleId = "camera-scanner-styles";
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = `
-      #${scannerElementId} video {
-        width: 100% !important;
-        height: auto !important;
-        object-fit: cover !important;
-        border-radius: 12px;
-      }
-      #${scannerElementId} img[alt="Info icon"] { display: none !important; }
-      #${scannerElementId} span { display: none !important; }
-      #${scannerElementId} > div:first-child { display: block !important; }
-    `;
-    document.head.appendChild(style);
-    return () => {
-      const existing = document.getElementById(styleId);
-      if (existing) existing.remove();
-    };
-  }, [scannerElementId]);
+  const [isStarting, setIsStarting] = useState(false);
+  const [scannerDivId] = useState(`qr-decode-${Math.random().toString(36).slice(2, 9)}`);
 
   useEffect(() => {
     if (!isActive) {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {}).finally(() => {
-          scannerRef.current?.clear();
-          scannerRef.current = null;
-        });
+        scannerRef.current.clear();
+        scannerRef.current = null;
       }
       return;
     }
 
     let cancelled = false;
 
-    const startScanner = async () => {
+    const startCamera = async () => {
+      setIsStarting(true);
+      setCameraError("");
       try {
-        setCameraError("");
-        const scanner = new Html5Qrcode(scannerElementId);
-        scannerRef.current = scanner;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: "environment",
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
 
-        await scanner.start(
-          { facingMode: "environment" },
-          {
-            fps: 15,
-            qrbox: { width: 280, height: 160 },
-            aspectRatio: 1.5,
-            disableFlip: false,
-          },
-          (decodedText) => {
-            const now = Date.now();
-            if (decodedText === lastScannedRef.current && now - lastScannedTimeRef.current < 2000) {
-              return;
+        if (cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+
+        // Create an off-screen canvas for frame capture
+        const canvas = document.createElement("canvas");
+        canvasRef.current = canvas;
+
+        // Create Html5Qrcode instance for decoding frames (not for camera control)
+        const hiddenDiv = document.getElementById(scannerDivId);
+        if (hiddenDiv) {
+          const scanner = new Html5Qrcode(scannerDivId);
+          scannerRef.current = scanner;
+        }
+
+        // Scan frames periodically
+        scanIntervalRef.current = setInterval(async () => {
+          if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
+
+          const video = videoRef.current;
+          const cvs = canvasRef.current;
+          cvs.width = video.videoWidth;
+          cvs.height = video.videoHeight;
+          const ctx = cvs.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
+
+          try {
+            const imageData = cvs.toDataURL("image/jpeg", 0.8);
+            if (scannerRef.current) {
+              const result = await scannerRef.current.scanFileV2(
+                dataUrlToBlob(imageData),
+                false
+              );
+              const decodedText = result.decodedText;
+              if (decodedText) {
+                const now = Date.now();
+                if (decodedText === lastScannedRef.current && now - lastScannedTimeRef.current < 2000) {
+                  return;
+                }
+                lastScannedRef.current = decodedText;
+                lastScannedTimeRef.current = now;
+                onScanSuccess(decodedText);
+                if ("vibrate" in navigator) navigator.vibrate(VIBRATE_DURATION);
+              }
             }
-            lastScannedRef.current = decodedText;
-            lastScannedTimeRef.current = now;
-            onScanSuccess(decodedText);
-            if ("vibrate" in navigator) navigator.vibrate(VIBRATE_DURATION);
-          },
-          () => {}
-        );
+          } catch {
+            // No barcode found in this frame — this is normal
+          }
+        }, 250);
+
+        setIsStarting(false);
       } catch (error) {
         if (!cancelled) {
+          setIsStarting(false);
           const message = (error as Error)?.message || String(error);
-          if (message.includes("Permission")) {
-            setCameraError("Camera permission denied. Please allow camera access and try again.");
-          } else if (message.includes("NotFound") || message.includes("Requested device not found")) {
+          if (message.includes("Permission") || message.includes("NotAllowed")) {
+            setCameraError("Camera permission denied. Please allow camera access in your browser settings.");
+          } else if (message.includes("NotFound") || message.includes("DevicesNotFound")) {
             setCameraError("No camera found on this device.");
           } else {
             setCameraError(`Camera error: ${message}`);
           }
-          console.warn("Camera scanner failed to start:", error);
         }
       }
     };
 
-    startScanner();
+    startCamera();
 
     return () => {
       cancelled = true;
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current);
+        scanIntervalRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+      }
       if (scannerRef.current) {
-        scannerRef.current.stop().catch(() => {}).finally(() => {
-          scannerRef.current?.clear();
-          scannerRef.current = null;
-        });
+        scannerRef.current.clear();
+        scannerRef.current = null;
       }
     };
-  }, [isActive, onScanSuccess, scannerElementId]);
+  }, [isActive, onScanSuccess, scannerDivId]);
 
   if (!isActive) return null;
 
   return (
     <div
-      ref={containerRef}
       style={{
         marginBottom: "16px",
         borderRadius: "16px",
@@ -877,14 +914,42 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         position: "relative",
       }}
     >
-      <div
-        id={scannerElementId}
+      {/* Native video element with iOS-required attributes */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted
         style={{
           width: "100%",
+          height: "auto",
           minHeight: "300px",
-          position: "relative",
+          objectFit: "cover",
+          display: "block",
+          borderRadius: "14px",
         }}
       />
+      {/* Hidden div for Html5Qrcode decode engine */}
+      <div id={scannerDivId} style={{ display: "none" }} />
+
+      {/* Scan region overlay */}
+      {!cameraError && !isStarting && (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "260px",
+            height: "150px",
+            border: "3px solid rgba(255,255,255,0.7)",
+            borderRadius: "12px",
+            pointerEvents: "none",
+            boxShadow: "0 0 0 2000px rgba(0,0,0,0.3)",
+          }}
+        />
+      )}
+
       {cameraError ? (
         <div
           style={{
@@ -892,7 +957,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
-            backgroundColor: "rgba(0,0,0,0.8)",
+            backgroundColor: "rgba(0,0,0,0.85)",
             color: "#ff6b6b",
             padding: "16px 20px",
             borderRadius: "12px",
@@ -903,6 +968,20 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           }}
         >
           {cameraError}
+        </div>
+      ) : isStarting ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            color: "#fff",
+            fontSize: "14px",
+            fontWeight: "500",
+          }}
+        >
+          Starting camera...
         </div>
       ) : (
         <div
@@ -927,6 +1006,18 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
     </div>
   );
 };
+
+// Helper: convert data URL to Blob for scanFileV2
+function dataUrlToBlob(dataUrl: string): File {
+  const byteString = atob(dataUrl.split(",")[1]);
+  const mimeType = dataUrl.split(",")[0].split(":")[1].split(";")[0];
+  const arrayBuffer = new ArrayBuffer(byteString.length);
+  const uint8Array = new Uint8Array(arrayBuffer);
+  for (let i = 0; i < byteString.length; i++) {
+    uint8Array[i] = byteString.charCodeAt(i);
+  }
+  return new File([arrayBuffer], "frame.jpg", { type: mimeType });
+}
 
 // ============================================================
 // Scanner Input with Camera Toggle

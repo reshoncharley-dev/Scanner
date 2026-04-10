@@ -2,7 +2,7 @@
 
 const SCOPES = "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.readonly";
 const DISCOVERY_DOC = "https://sheets.googleapis.com/$discovery/rest?version=v4";
-const CLIENT_ID_KEY = "gsheets_client_id";
+const DEFAULT_CLIENT_ID = "370755872055-4uo9hvprrmh9lf3h24n9uvitfeeifdno.apps.googleusercontent.com";
 
 export interface SheetInfo { sheetId: number; title: string; rowCount: number; columnCount: number; }
 export interface SpreadsheetInfo { spreadsheetId: string; title: string; sheets: SheetInfo[]; }
@@ -62,8 +62,8 @@ function requestAccessToken(): Promise<string> {
 
 const g = () => (window as any).gapi.client.sheets.spreadsheets;
 
-export const getSavedClientId = (): string => localStorage.getItem(CLIENT_ID_KEY) || "";
-export const saveClientId = (id: string): void => { localStorage.setItem(CLIENT_ID_KEY, id); };
+export const getSavedClientId = (): string => DEFAULT_CLIENT_ID;
+export const saveClientId = (_id: string): void => {};
 export const isAuthenticated = (): boolean => !!accessToken;
 
 export async function initialize(clientId: string): Promise<void> { await initGapi(); await initGis(clientId); }

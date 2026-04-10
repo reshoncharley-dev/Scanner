@@ -1008,13 +1008,12 @@ interface GoogleSheetsConnectorProps {
 
 const GoogleSheetsConnector: React.FC<GoogleSheetsConnectorProps> = ({
   googleState, onSignIn, onSignOut, onSelectSpreadsheet, onSelectTab, onLoadSheet,
-  onToggleSync, onExportToSheet, onDisconnect, onSetClientId, onShowSetup,
+  onToggleSync, onExportToSheet, onDisconnect,
   hasInventory, foundCount, totalCount,
 }) => {
   const [signInLoading, setSignInLoading] = useState(false);
   const [selectLoading, setSelectLoading] = useState<string | null>(null);
   const [exportLoading, setExportLoading] = useState(false);
-  const [localClientId, setLocalClientId] = useState(googleState.clientId);
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [manualUrl, setManualUrl] = useState("");
 
@@ -1024,42 +1023,20 @@ const GoogleSheetsConnector: React.FC<GoogleSheetsConnectorProps> = ({
   const handleExport = async () => { setExportLoading(true); try { await onExportToSheet(); } finally { setExportLoading(false); } };
 
   if (googleState.showSetup) {
-    return (
-      <div style={{ marginBottom: "20px", padding: "20px", borderRadius: "16px", border: "2px solid #34a853", backgroundColor: "#f0fdf4" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}><GoogleSheetsIcon /><span style={{ fontSize: "16px", fontWeight: "700", color: "#1e293b" }}>Google Sheets Setup</span></div>
-        <div style={{ fontSize: "13px", color: "#64748b", marginBottom: "12px", lineHeight: "1.6" }}>
-          To sign in with Google, you need an OAuth Client ID:<br />
-          1. Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: "#4285f4", textDecoration: "underline" }}>Google Cloud Console</a><br />
-          2. Create an OAuth 2.0 Client ID (Web application)<br />
-          3. Add <strong>{window.location.origin}</strong> to Authorized JavaScript Origins<br />
-          4. Enable <strong>Google Sheets API</strong> and <strong>Google Drive API</strong>
-        </div>
-        <input type="text" value={localClientId} onChange={(e) => setLocalClientId(e.target.value)} placeholder="Paste your OAuth Client ID here..." style={{ width: "100%", padding: "12px", fontSize: "13px", borderRadius: "8px", border: "1px solid #d1d5db", backgroundColor: "#ffffff", marginBottom: "12px", boxSizing: "border-box", fontFamily: "monospace" }} />
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button onClick={() => { onSetClientId(localClientId.trim()); onShowSetup(false); }} disabled={!localClientId.trim()} style={{ padding: "10px 20px", fontSize: "14px", fontWeight: "600", borderRadius: "8px", border: "none", backgroundColor: localClientId.trim() ? "#34a853" : "#94a3b8", color: "#fff", cursor: localClientId.trim() ? "pointer" : "not-allowed" }}>Save & Continue</button>
-          {googleState.clientId && <button onClick={() => onShowSetup(false)} style={{ padding: "10px 20px", fontSize: "14px", fontWeight: "600", borderRadius: "8px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#64748b", cursor: "pointer" }}>Cancel</button>}
-        </div>
-      </div>
-    );
+    return null;
   }
 
   if (!googleState.clientId) {
-    return (
-      <div style={{ marginBottom: "20px", padding: "20px", borderRadius: "16px", border: "2px dashed #34a853", backgroundColor: "#f0fdf4" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}><GoogleSheetsIcon /><span style={{ fontSize: "16px", fontWeight: "700", color: "#1e293b" }}>Google Sheets</span></div>
-        <div style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px", lineHeight: "1.5" }}>Connect your Google account to import inventory from Google Sheets, sync scans in real time, and export results.</div>
-        <button onClick={() => onShowSetup(true)} style={{ width: "100%", padding: "12px 20px", fontSize: "15px", fontWeight: "600", borderRadius: "10px", border: "1px solid #dadce0", backgroundColor: "#fff", color: "#3c4043", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" }}><GoogleLogo /> Set up Google Sheets Connection</button>
-      </div>
-    );
+    return null;
   }
 
   if (!googleState.isSignedIn) {
     return (
       <div style={{ marginBottom: "20px", padding: "20px", borderRadius: "16px", border: "2px dashed #34a853", backgroundColor: "#f0fdf4" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}><GoogleSheetsIcon /><span style={{ fontSize: "16px", fontWeight: "700", color: "#1e293b" }}>Google Sheets</span></div>
-          <button onClick={() => onShowSetup(true)} style={{ padding: "4px 10px", fontSize: "11px", fontWeight: "600", borderRadius: "6px", border: "1px solid #d1d5db", backgroundColor: "#fff", color: "#64748b", cursor: "pointer" }}>Settings</button>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "12px" }}>
+          <GoogleSheetsIcon /><span style={{ fontSize: "16px", fontWeight: "700", color: "#1e293b" }}>Google Sheets</span>
         </div>
+        <div style={{ fontSize: "13px", color: "#64748b", marginBottom: "16px", lineHeight: "1.5" }}>Sign in with your Google account to import inventory from Google Sheets, sync scans in real time, and export results.</div>
         {googleState.error && <div style={{ padding: "8px 12px", borderRadius: "8px", backgroundColor: "#fee2e2", color: "#dc2626", fontSize: "13px", marginBottom: "12px" }}>{googleState.error}</div>}
         <button onClick={handleSignIn} disabled={signInLoading} style={{ width: "100%", padding: "12px 20px", fontSize: "15px", fontWeight: "600", borderRadius: "10px", border: "1px solid #dadce0", backgroundColor: "#fff", color: "#3c4043", cursor: signInLoading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)", opacity: signInLoading ? 0.7 : 1 }}><GoogleLogo />{signInLoading ? "Signing in..." : "Sign in with Google"}</button>
       </div>

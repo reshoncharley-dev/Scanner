@@ -761,9 +761,11 @@ interface CameraScannerProps {
   onScanSuccess: (code: string) => void;
   isActive: boolean;
   accentColor?: string;
+  lastScannedCode?: string;
+  lastScanFound?: boolean;
 }
 
-const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, accentColor = COLORS.primary }) => {
+const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, accentColor = COLORS.primary, lastScannedCode, lastScanFound }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
@@ -774,6 +776,26 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
   const [cameraError, setCameraError] = useState<string>("");
   const [isStarting, setIsStarting] = useState(false);
   const [scannerDivId] = useState(`qr-decode-${Math.random().toString(36).slice(2, 9)}`);
+  const [flashColor, setFlashColor] = useState<string | null>(null);
+  const [scanCount, setScanCount] = useState(0);
+
+  // Flash the border when a scan happens
+  useEffect(() => {
+    if (!lastScannedCode) return;
+    const color = lastScanFound ? COLORS.success : COLORS.error;
+    setFlashColor(color);
+    setScanCount((prev) => prev + 1);
+    // Stronger vibration pattern: found = short buzz, not found = double buzz
+    if ("vibrate" in navigator) {
+      if (lastScanFound) {
+        navigator.vibrate([200]);
+      } else {
+        navigator.vibrate([100, 50, 100, 50, 100]);
+      }
+    }
+    const timer = setTimeout(() => setFlashColor(null), 1500);
+    return () => clearTimeout(timer);
+  }, [lastScannedCode, lastScanFound, scanCount]);
 
   useEffect(() => {
     if (!isActive) {
@@ -819,18 +841,15 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           await videoRef.current.play();
         }
 
-        // Create an off-screen canvas for frame capture
         const canvas = document.createElement("canvas");
         canvasRef.current = canvas;
 
-        // Create Html5Qrcode instance for decoding frames (not for camera control)
         const hiddenDiv = document.getElementById(scannerDivId);
         if (hiddenDiv) {
           const scanner = new Html5Qrcode(scannerDivId);
           scannerRef.current = scanner;
         }
 
-        // Scan frames periodically
         scanIntervalRef.current = setInterval(async () => {
           if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
 
@@ -858,11 +877,10 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
                 lastScannedRef.current = decodedText;
                 lastScannedTimeRef.current = now;
                 onScanSuccess(decodedText);
-                if ("vibrate" in navigator) navigator.vibrate(VIBRATE_DURATION);
               }
             }
           } catch {
-            // No barcode found in this frame — this is normal
+            // No barcode found in this frame
           }
         }, 250);
 
@@ -903,18 +921,20 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
 
   if (!isActive) return null;
 
+  const borderColor = flashColor || accentColor;
+
   return (
     <div
       style={{
         marginBottom: "16px",
         borderRadius: "16px",
         overflow: "hidden",
-        border: `2px solid ${accentColor}`,
+        border: `3px solid ${borderColor}`,
         backgroundColor: "#000",
         position: "relative",
+        transition: "border-color 0.2s ease",
       }}
     >
-      {/* Native video element with iOS-required attributes */}
       <video
         ref={videoRef}
         autoPlay
@@ -923,13 +943,13 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         style={{
           width: "100%",
           height: "auto",
-          minHeight: "300px",
+          minHeight: "280px",
+          maxHeight: "350px",
           objectFit: "cover",
           display: "block",
-          borderRadius: "14px",
+          borderRadius: "13px",
         }}
       />
-      {/* Hidden div for Html5Qrcode decode engine */}
       <div id={scannerDivId} style={{ display: "none" }} />
 
       {/* Scan region overlay */}
@@ -942,12 +962,66 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             transform: "translate(-50%, -50%)",
             width: "260px",
             height: "150px",
-            border: "3px solid rgba(255,255,255,0.7)",
+            border: `3px solid ${flashColor ? flashColor : "rgba(255,255,255,0.7)"}`,
             borderRadius: "12px",
             pointerEvents: "none",
             boxShadow: "0 0 0 2000px rgba(0,0,0,0.3)",
+            transition: "border-color 0.2s ease",
           }}
         />
+      )}
+
+      {/* Flash overlay on scan */}
+      {flashColor && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundColor: flashColor + "25",
+            pointerEvents: "none",
+            borderRadius: "13px",
+            animation: "cameraFlash 0.5s ease-out",
+          }}
+        />
+      )}
+
+      {/* Scan result toast overlay — shows on camera so user doesn't need to scroll */}
+      {lastScannedCode && flashColor && (
+        <div
+          style={{
+            position: "absolute",
+            top: "12px",
+            left: "12px",
+            right: "12px",
+            display: "flex",
+            alignItems: "center",
+            gap: "10px",
+            padding: "12px 16px",
+            borderRadius: "12px",
+            backgroundColor: lastScanFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
+            color: "#fff",
+            animation: "slideIn 0.3s ease-out",
+            zIndex: 10,
+          }}
+        >
+          {lastScanFound ? (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
+            </svg>
+          ) : (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
+            </svg>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: "14px", fontWeight: "700" }}>
+              {lastScanFound ? "Found!" : "Not in inventory"}
+            </div>
+            <div style={{ fontSize: "12px", opacity: 0.9, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {lastScannedCode}
+            </div>
+          </div>
+        </div>
       )}
 
       {cameraError ? (
@@ -983,7 +1057,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         >
           Starting camera...
         </div>
-      ) : (
+      ) : !flashColor ? (
         <div
           style={{
             position: "absolute",
@@ -1002,7 +1076,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         >
           Point camera at barcode
         </div>
-      )}
+      ) : null}
     </div>
   );
 };
@@ -1031,6 +1105,8 @@ interface ScannerInputProps {
   placeholder?: string;
   accentColor?: string;
   inputStyle?: React.CSSProperties;
+  lastScannedCode?: string;
+  lastScanFound?: boolean;
 }
 
 const ScannerInput: React.FC<ScannerInputProps> = ({
@@ -1042,6 +1118,8 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
   placeholder = "Ready to scan... (press Enter after scan)",
   accentColor = COLORS.primary,
   inputStyle = {},
+  lastScannedCode,
+  lastScanFound,
 }) => {
   const [cameraMode, setCameraMode] = useState(false);
 
@@ -1097,6 +1175,8 @@ const ScannerInput: React.FC<ScannerInputProps> = ({
           onScanSuccess={onCameraScan}
           isActive={cameraMode}
           accentColor={accentColor}
+          lastScannedCode={lastScannedCode}
+          lastScanFound={lastScanFound}
         />
       ) : (
         <input
@@ -2310,6 +2390,8 @@ const PickRunView: React.FC<PickRunViewProps> = ({
           handScannerInputRef={handScannerInputRef}
           placeholder="Scan items as you walk..."
           accentColor={COLORS.pickRun}
+          lastScannedCode={lastScannedCode}
+          lastScanFound={lastScanFound}
         />
       </div>
 
@@ -3738,6 +3820,7 @@ export default function InventoryScanner() {
         @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes cameraFlash { 0% { opacity: 0.6; } 100% { opacity: 0; } }
       `;
       document.head.appendChild(style);
     }
@@ -3906,6 +3989,8 @@ export default function InventoryScanner() {
               handScannerInputRef={handScannerInputRef}
               placeholder="Ready to scan... (press Enter after scan)"
               accentColor={COLORS.primary}
+              lastScannedCode={lastScannedCode}
+              lastScanFound={lastScanFound}
             />
 
             <SimpleScanResult scannedCode={lastScannedCode} found={lastScanFound} />

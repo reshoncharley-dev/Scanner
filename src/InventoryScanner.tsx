@@ -773,19 +773,28 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
   const lastScannedRef = useRef<string>("");
   const lastScannedTimeRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const onScanSuccessRef = useRef(onScanSuccess);
   const [cameraError, setCameraError] = useState<string>("");
   const [isStarting, setIsStarting] = useState(false);
   const [scannerDivId] = useState(`qr-decode-${Math.random().toString(36).slice(2, 9)}`);
   const [flashColor, setFlashColor] = useState<string | null>(null);
-  const [scanCount, setScanCount] = useState(0);
+  const [showToast, setShowToast] = useState(false);
+  const [toastCode, setToastCode] = useState("");
+  const [toastFound, setToastFound] = useState(false);
 
-  // Flash the border when a scan happens
+  // Keep the callback ref up to date without restarting the camera
+  useEffect(() => {
+    onScanSuccessRef.current = onScanSuccess;
+  }, [onScanSuccess]);
+
+  // Flash + toast when a scan result arrives from parent
   useEffect(() => {
     if (!lastScannedCode) return;
     const color = lastScanFound ? COLORS.success : COLORS.error;
     setFlashColor(color);
-    setScanCount((prev) => prev + 1);
-    // Stronger vibration pattern: found = short buzz, not found = double buzz
+    setShowToast(true);
+    setToastCode(lastScannedCode);
+    setToastFound(!!lastScanFound);
     if ("vibrate" in navigator) {
       if (lastScanFound) {
         navigator.vibrate([200]);
@@ -793,9 +802,10 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         navigator.vibrate([100, 50, 100, 50, 100]);
       }
     }
-    const timer = setTimeout(() => setFlashColor(null), 1500);
-    return () => clearTimeout(timer);
-  }, [lastScannedCode, lastScanFound, scanCount]);
+    const flashTimer = setTimeout(() => setFlashColor(null), 1200);
+    const toastTimer = setTimeout(() => setShowToast(false), 2000);
+    return () => { clearTimeout(flashTimer); clearTimeout(toastTimer); };
+  }, [lastScannedCode, lastScanFound]);
 
   useEffect(() => {
     if (!isActive) {
@@ -876,7 +886,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
                 }
                 lastScannedRef.current = decodedText;
                 lastScannedTimeRef.current = now;
-                onScanSuccess(decodedText);
+                onScanSuccessRef.current(decodedText);
               }
             }
           } catch {
@@ -917,7 +927,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         scannerRef.current = null;
       }
     };
-  }, [isActive, onScanSuccess, scannerDivId]);
+  }, [isActive, scannerDivId]);
 
   if (!isActive) return null;
 
@@ -985,8 +995,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         />
       )}
 
-      {/* Scan result toast overlay — shows on camera so user doesn't need to scroll */}
-      {lastScannedCode && flashColor && (
+      {/* Scan result toast overlay */}
+      {showToast && toastCode && (
         <div
           style={{
             position: "absolute",
@@ -998,13 +1008,13 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             gap: "10px",
             padding: "12px 16px",
             borderRadius: "12px",
-            backgroundColor: lastScanFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
+            backgroundColor: toastFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
             color: "#fff",
             animation: "slideIn 0.3s ease-out",
             zIndex: 10,
           }}
         >
-          {lastScanFound ? (
+          {toastFound ? (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
               <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
             </svg>

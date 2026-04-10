@@ -2594,7 +2594,7 @@ export default function InventoryScanner() {
     setShowRestoredBanner(false);
     setPickRunMode(false);
     setPickRunData(null);
-    setDeployReasonFilter("BOTH");
+    setDeployReasonFilter("ALL");
     lookupMapRef.current = new Map();
     clearStorage();
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -2709,6 +2709,7 @@ export default function InventoryScanner() {
           setShowRestoredBanner(false);
           setPickRunMode(false);
           setPickRunData(null);
+          setDeployReasonFilter("ALL");
           buildLookupMap(dataList);
           let statusMsg = `Successfully loaded ${dataList.length} items from "${file.name}"`;
           if (initialFoundCount > 0) statusMsg += ` (${initialFoundCount} already found)`;
@@ -2959,6 +2960,7 @@ export default function InventoryScanner() {
       setShowRestoredBanner(false);
       setPickRunMode(false);
       setPickRunData(null);
+      setDeployReasonFilter("ALL");
       buildLookupMap(dataList);
 
       updateGoogleState({

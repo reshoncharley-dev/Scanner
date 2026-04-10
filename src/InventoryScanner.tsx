@@ -3066,7 +3066,8 @@ export default function InventoryScanner() {
         });
       });
 
-      const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
+      const now = new Date();
+      const timestamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")} ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
       const newTabTitle = `Scan Results ${timestamp}`;
 
       await GSheets.exportToNewSheet(googleState.spreadsheetId, newTabTitle, headers, rows);

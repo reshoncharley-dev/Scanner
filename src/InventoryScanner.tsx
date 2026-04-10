@@ -769,20 +769,17 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const lastScannedRef = useRef<string>("");
-  const lastScannedTimeRef = useRef<number>(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const onScanSuccessRef = useRef(onScanSuccess);
   const [cameraError, setCameraError] = useState<string>("");
   const [isStarting, setIsStarting] = useState(false);
+  const [isScanning, setIsScanning] = useState(false);
   const [scannerDivId] = useState(`qr-decode-${Math.random().toString(36).slice(2, 9)}`);
   const [flashColor, setFlashColor] = useState<string | null>(null);
   const [showToast, setShowToast] = useState(false);
   const [toastCode, setToastCode] = useState("");
   const [toastFound, setToastFound] = useState(false);
 
-  // Keep the callback ref up to date without restarting the camera
   useEffect(() => {
     onScanSuccessRef.current = onScanSuccess;
   }, [onScanSuccess]);
@@ -803,16 +800,13 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
       }
     }
     const flashTimer = setTimeout(() => setFlashColor(null), 1200);
-    const toastTimer = setTimeout(() => setShowToast(false), 2000);
+    const toastTimer = setTimeout(() => setShowToast(false), 2500);
     return () => { clearTimeout(flashTimer); clearTimeout(toastTimer); };
   }, [lastScannedCode, lastScanFound]);
 
+  // Start camera (just the video feed, no auto-scanning)
   useEffect(() => {
     if (!isActive) {
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
-        scanIntervalRef.current = null;
-      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -860,40 +854,6 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           scannerRef.current = scanner;
         }
 
-        scanIntervalRef.current = setInterval(async () => {
-          if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
-
-          const video = videoRef.current;
-          const cvs = canvasRef.current;
-          cvs.width = video.videoWidth;
-          cvs.height = video.videoHeight;
-          const ctx = cvs.getContext("2d");
-          if (!ctx) return;
-          ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
-
-          try {
-            const imageData = cvs.toDataURL("image/jpeg", 0.8);
-            if (scannerRef.current) {
-              const result = await scannerRef.current.scanFileV2(
-                dataUrlToBlob(imageData),
-                false
-              );
-              const decodedText = result.decodedText;
-              if (decodedText) {
-                const now = Date.now();
-                if (decodedText === lastScannedRef.current && now - lastScannedTimeRef.current < 2000) {
-                  return;
-                }
-                lastScannedRef.current = decodedText;
-                lastScannedTimeRef.current = now;
-                onScanSuccessRef.current(decodedText);
-              }
-            }
-          } catch {
-            // No barcode found in this frame
-          }
-        }, 250);
-
         setIsStarting(false);
       } catch (error) {
         if (!cancelled) {
@@ -914,10 +874,6 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
 
     return () => {
       cancelled = true;
-      if (scanIntervalRef.current) {
-        clearInterval(scanIntervalRef.current);
-        scanIntervalRef.current = null;
-      }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
         streamRef.current = null;
@@ -929,12 +885,49 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
     };
   }, [isActive, scannerDivId]);
 
+  // Tap to capture and decode a single frame
+  const handleTapToScan = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || !scannerRef.current || videoRef.current.readyState < 2) return;
+    if (isScanning) return;
+
+    setIsScanning(true);
+    const video = videoRef.current;
+    const cvs = canvasRef.current;
+    cvs.width = video.videoWidth;
+    cvs.height = video.videoHeight;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) { setIsScanning(false); return; }
+    ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
+
+    try {
+      const imageData = cvs.toDataURL("image/jpeg", 0.9);
+      const result = await scannerRef.current.scanFileV2(
+        dataUrlToBlob(imageData),
+        false
+      );
+      if (result.decodedText) {
+        onScanSuccessRef.current(result.decodedText);
+      }
+    } catch {
+      // No barcode found — show a brief "nothing found" indication
+      setFlashColor(COLORS.warning);
+      setShowToast(true);
+      setToastCode("No barcode detected");
+      setToastFound(false);
+      if ("vibrate" in navigator) navigator.vibrate([50, 30, 50]);
+      setTimeout(() => { setFlashColor(null); }, 800);
+      setTimeout(() => { setShowToast(false); }, 1500);
+    }
+    setIsScanning(false);
+  }, [isScanning]);
+
   if (!isActive) return null;
 
   const borderColor = flashColor || accentColor;
 
   return (
     <div
+      onClick={handleTapToScan}
       style={{
         marginBottom: "16px",
         borderRadius: "16px",
@@ -943,6 +936,9 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         backgroundColor: "#000",
         position: "relative",
         transition: "border-color 0.2s ease",
+        cursor: "pointer",
+        WebkitTapHighlightColor: "transparent",
+        userSelect: "none",
       }}
     >
       <video
@@ -958,6 +954,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           objectFit: "cover",
           display: "block",
           borderRadius: "13px",
+          pointerEvents: "none",
         }}
       />
       <div id={scannerDivId} style={{ display: "none" }} />
@@ -989,13 +986,20 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             gap: "10px",
             padding: "12px 16px",
             borderRadius: "12px",
-            backgroundColor: toastFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
+            backgroundColor: toastCode === "No barcode detected"
+              ? "rgba(245, 158, 11, 0.95)"
+              : toastFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
             color: "#fff",
             animation: "slideIn 0.3s ease-out",
             zIndex: 10,
+            pointerEvents: "none",
           }}
         >
-          {toastFound ? (
+          {toastCode === "No barcode detected" ? (
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+            </svg>
+          ) : toastFound ? (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
               <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
             </svg>
@@ -1006,11 +1010,13 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: "14px", fontWeight: "700" }}>
-              {lastScanFound ? "Found!" : "Not in inventory"}
+              {toastCode === "No barcode detected" ? "No barcode detected" : toastFound ? "Found!" : "Not in inventory"}
             </div>
-            <div style={{ fontSize: "12px", opacity: 0.9, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {lastScannedCode}
-            </div>
+            {toastCode !== "No barcode detected" && (
+              <div style={{ fontSize: "12px", opacity: 0.9, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {toastCode}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1048,26 +1054,27 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         >
           Starting camera...
         </div>
-      ) : !flashColor ? (
+      ) : (
         <div
           style={{
             position: "absolute",
             bottom: "12px",
             left: "50%",
             transform: "translateX(-50%)",
-            backgroundColor: "rgba(0,0,0,0.6)",
+            backgroundColor: isScanning ? "rgba(99, 102, 241, 0.9)" : "rgba(0,0,0,0.6)",
             color: "#fff",
-            padding: "8px 16px",
-            borderRadius: "20px",
-            fontSize: "12px",
-            fontWeight: "500",
+            padding: "10px 20px",
+            borderRadius: "24px",
+            fontSize: "14px",
+            fontWeight: "600",
             pointerEvents: "none",
             backdropFilter: "blur(4px)",
+            transition: "background-color 0.2s ease",
           }}
         >
-          Point camera at barcode
+          {isScanning ? "Scanning..." : "Tap to Scan"}
         </div>
-      ) : null}
+      )}
     </div>
   );
 };

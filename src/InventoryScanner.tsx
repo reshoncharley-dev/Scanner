@@ -962,25 +962,6 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
       />
       <div id={scannerDivId} style={{ display: "none" }} />
 
-      {/* Scan region overlay */}
-      {!cameraError && !isStarting && (
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            width: "260px",
-            height: "150px",
-            border: `3px solid ${flashColor ? flashColor : "rgba(255,255,255,0.7)"}`,
-            borderRadius: "12px",
-            pointerEvents: "none",
-            boxShadow: "0 0 0 2000px rgba(0,0,0,0.3)",
-            transition: "border-color 0.2s ease",
-          }}
-        />
-      )}
-
       {/* Flash overlay on scan */}
       {flashColor && (
         <div

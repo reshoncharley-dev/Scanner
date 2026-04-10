@@ -824,11 +824,12 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
       setIsStarting(true);
       setCameraError("");
       try {
+        // Request highest resolution available for better barcode detection
         const stream = await navigator.mediaDevices.getUserMedia({
           video: {
             facingMode: "environment",
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
           },
           audio: false,
         });
@@ -839,6 +840,19 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         }
 
         streamRef.current = stream;
+
+        // Try to enable autofocus and continuous focus if supported
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            const capabilities = videoTrack.getCapabilities() as any;
+            if (capabilities?.focusMode?.includes("continuous")) {
+              await videoTrack.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
+            }
+          } catch {
+            // Focus control not supported — that's fine
+          }
+        }
 
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -885,22 +899,8 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
     };
   }, [isActive, scannerDivId]);
 
-  // Tap to capture and decode a single frame
-  const handleTapToScan = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
-    if (isScanning) return;
-
-    setIsScanning(true);
-    const video = videoRef.current;
-    const cvs = canvasRef.current;
-    cvs.width = video.videoWidth;
-    cvs.height = video.videoHeight;
-    const ctx = cvs.getContext("2d");
-    if (!ctx) { setIsScanning(false); return; }
-    ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
-
-    let decoded = false;
-
+  // Helper: attempt to decode a single frame using both detection methods
+  const decodeFrame = useCallback(async (cvs: HTMLCanvasElement): Promise<string | null> => {
     // Try native BarcodeDetector first (best on iOS Safari & Chrome)
     if ("BarcodeDetector" in window) {
       try {
@@ -909,42 +909,73 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         });
         const barcodes = await detector.detect(cvs);
         if (barcodes.length > 0 && barcodes[0].rawValue) {
-          onScanSuccessRef.current(barcodes[0].rawValue);
-          decoded = true;
+          return barcodes[0].rawValue;
         }
       } catch {
-        // BarcodeDetector failed, fall through to html5-qrcode
+        // Fall through
       }
     }
 
-    // Fallback: use html5-qrcode scanFileV2 with a proper blob
-    if (!decoded && scannerRef.current) {
+    // Fallback: html5-qrcode with PNG blob
+    if (scannerRef.current) {
       try {
         const blob = await new Promise<Blob>((resolve) => {
           cvs.toBlob((result) => resolve(result!), "image/png");
         });
         const file = new File([blob], "frame.png", { type: "image/png" });
         const result = await scannerRef.current.scanFileV2(file, true);
-        if (result.decodedText) {
-          onScanSuccessRef.current(result.decodedText);
-          decoded = true;
-        }
+        if (result.decodedText) return result.decodedText;
       } catch {
         // No barcode found
       }
     }
 
-    if (!decoded) {
-      setFlashColor(COLORS.warning);
-      setShowToast(true);
-      setToastCode("No barcode detected — try moving closer");
-      setToastFound(false);
-      if ("vibrate" in navigator) navigator.vibrate([50, 30, 50]);
-      setTimeout(() => { setFlashColor(null); }, 800);
-      setTimeout(() => { setShowToast(false); }, 1500);
+    return null;
+  }, []);
+
+  // Tap to scan: captures multiple frames rapidly for better detection
+  const handleTapToScan = useCallback(async () => {
+    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
+    if (isScanning) return;
+
+    setIsScanning(true);
+    const video = videoRef.current;
+    const cvs = canvasRef.current;
+    const ctx = cvs.getContext("2d");
+    if (!ctx) { setIsScanning(false); return; }
+
+    // Try up to 6 frames over ~1.2 seconds for best chance of detection
+    const maxAttempts = 6;
+    const delayBetweenFrames = 200;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      cvs.width = video.videoWidth;
+      cvs.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
+
+      const result = await decodeFrame(cvs);
+      if (result) {
+        onScanSuccessRef.current(result);
+        setIsScanning(false);
+        return;
+      }
+
+      // Wait briefly before next frame capture (lets autofocus adjust)
+      if (attempt < maxAttempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayBetweenFrames));
+      }
     }
+
+    // All attempts failed
+    setFlashColor(COLORS.warning);
+    setShowToast(true);
+    setToastCode("No barcode detected — try moving closer");
+    setToastFound(false);
+    if ("vibrate" in navigator) navigator.vibrate([50, 30, 50]);
+    setTimeout(() => { setFlashColor(null); }, 800);
+    setTimeout(() => { setShowToast(false); }, 1500);
     setIsScanning(false);
-  }, [isScanning]);
+  }, [isScanning, decodeFrame]);
 
   if (!isActive) return null;
 
@@ -1097,7 +1128,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             transition: "background-color 0.2s ease",
           }}
         >
-          {isScanning ? "Scanning..." : "Tap to Scan"}
+          {isScanning ? "Scanning... hold steady" : "Tap to Scan"}
         </div>
       )}
     </div>

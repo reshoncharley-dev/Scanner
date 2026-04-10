@@ -887,7 +887,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
 
   // Tap to capture and decode a single frame
   const handleTapToScan = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || !scannerRef.current || videoRef.current.readyState < 2) return;
+    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
     if (isScanning) return;
 
     setIsScanning(true);
@@ -899,20 +899,45 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
     if (!ctx) { setIsScanning(false); return; }
     ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
 
-    try {
-      const imageData = cvs.toDataURL("image/jpeg", 0.9);
-      const result = await scannerRef.current.scanFileV2(
-        dataUrlToBlob(imageData),
-        false
-      );
-      if (result.decodedText) {
-        onScanSuccessRef.current(result.decodedText);
+    let decoded = false;
+
+    // Try native BarcodeDetector first (best on iOS Safari & Chrome)
+    if ("BarcodeDetector" in window) {
+      try {
+        const detector = new (window as any).BarcodeDetector({
+          formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "codabar", "itf", "data_matrix", "aztec", "pdf417"],
+        });
+        const barcodes = await detector.detect(cvs);
+        if (barcodes.length > 0 && barcodes[0].rawValue) {
+          onScanSuccessRef.current(barcodes[0].rawValue);
+          decoded = true;
+        }
+      } catch {
+        // BarcodeDetector failed, fall through to html5-qrcode
       }
-    } catch {
-      // No barcode found — show a brief "nothing found" indication
+    }
+
+    // Fallback: use html5-qrcode scanFileV2 with a proper blob
+    if (!decoded && scannerRef.current) {
+      try {
+        const blob = await new Promise<Blob>((resolve) => {
+          cvs.toBlob((result) => resolve(result!), "image/png");
+        });
+        const file = new File([blob], "frame.png", { type: "image/png" });
+        const result = await scannerRef.current.scanFileV2(file, true);
+        if (result.decodedText) {
+          onScanSuccessRef.current(result.decodedText);
+          decoded = true;
+        }
+      } catch {
+        // No barcode found
+      }
+    }
+
+    if (!decoded) {
       setFlashColor(COLORS.warning);
       setShowToast(true);
-      setToastCode("No barcode detected");
+      setToastCode("No barcode detected — try moving closer");
       setToastFound(false);
       if ("vibrate" in navigator) navigator.vibrate([50, 30, 50]);
       setTimeout(() => { setFlashColor(null); }, 800);
@@ -986,7 +1011,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             gap: "10px",
             padding: "12px 16px",
             borderRadius: "12px",
-            backgroundColor: toastCode === "No barcode detected"
+            backgroundColor: toastCode.startsWith("No barcode")
               ? "rgba(245, 158, 11, 0.95)"
               : toastFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
             color: "#fff",
@@ -995,7 +1020,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
             pointerEvents: "none",
           }}
         >
-          {toastCode === "No barcode detected" ? (
+          {toastCode.startsWith("No barcode") ? (
             <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
               <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
             </svg>
@@ -1010,9 +1035,9 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           )}
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: "14px", fontWeight: "700" }}>
-              {toastCode === "No barcode detected" ? "No barcode detected" : toastFound ? "Found!" : "Not in inventory"}
+              {toastCode.startsWith("No barcode") ? toastCode : toastFound ? "Found!" : "Not in inventory"}
             </div>
-            {toastCode !== "No barcode detected" && (
+            {!toastCode.startsWith("No barcode") && (
               <div style={{ fontSize: "12px", opacity: 0.9, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {toastCode}
               </div>
@@ -1078,18 +1103,6 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
     </div>
   );
 };
-
-// Helper: convert data URL to Blob for scanFileV2
-function dataUrlToBlob(dataUrl: string): File {
-  const byteString = atob(dataUrl.split(",")[1]);
-  const mimeType = dataUrl.split(",")[0].split(":")[1].split(";")[0];
-  const arrayBuffer = new ArrayBuffer(byteString.length);
-  const uint8Array = new Uint8Array(arrayBuffer);
-  for (let i = 0; i < byteString.length; i++) {
-    uint8Array[i] = byteString.charCodeAt(i);
-  }
-  return new File([arrayBuffer], "frame.jpg", { type: mimeType });
-}
 
 // ============================================================
 // Scanner Input with Camera Toggle

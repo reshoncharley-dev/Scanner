@@ -7,7 +7,6 @@ import React, {
   memo,
 } from "react";
 import Papa from "papaparse";
-import { Html5Qrcode } from "html5-qrcode";
 import * as GSheets from "./GoogleSheetsService";
 
 // ============================================================
@@ -741,514 +740,6 @@ const GoogleSheetsIcon = () => (
     <path fill="#1b5e20" d="M22 23H24V40H22z" />
   </svg>
 );
-
-const CameraIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M12 15.2c1.77 0 3.2-1.43 3.2-3.2S13.77 8.8 12 8.8 8.8 10.23 8.8 12s1.43 3.2 3.2 3.2zm9-8.6h-3.45l-1.81-2H8.26l-1.81 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2v-12c0-1.1-.9-2-2-2zm0 14H3V8.6h4.05l1.81-2h6.28l1.81 2H21v12z" />
-  </svg>
-);
-
-const KeyboardIcon = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-    <path d="M20 5H4c-1.1 0-1.99.9-1.99 2L2 17c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm-9 3h2v2h-2V8zm0 3h2v2h-2v-2zM8 8h2v2H8V8zm0 3h2v2H8v-2zm-1 2H5v-2h2v2zm0-3H5V8h2v2zm9 7H8v-2h8v2zm0-4h-2v-2h2v2zm0-3h-2V8h2v2zm3 3h-2v-2h2v2zm0-3h-2V8h2v2z" />
-  </svg>
-);
-
-// ============================================================
-// Camera Barcode Scanner Component (iOS Safari compatible)
-// ============================================================
-interface CameraScannerProps {
-  onScanSuccess: (code: string) => void;
-  isActive: boolean;
-  accentColor?: string;
-  lastScannedCode?: string;
-  lastScanFound?: boolean;
-}
-
-const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, accentColor = COLORS.primary, lastScannedCode, lastScanFound }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const scannerRef = useRef<Html5Qrcode | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const onScanSuccessRef = useRef(onScanSuccess);
-  const [cameraError, setCameraError] = useState<string>("");
-  const [isStarting, setIsStarting] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [scannerDivId] = useState(`qr-decode-${Math.random().toString(36).slice(2, 9)}`);
-  const [flashColor, setFlashColor] = useState<string | null>(null);
-  const [showToast, setShowToast] = useState(false);
-  const [toastCode, setToastCode] = useState("");
-  const [toastFound, setToastFound] = useState(false);
-
-  useEffect(() => {
-    onScanSuccessRef.current = onScanSuccess;
-  }, [onScanSuccess]);
-
-  // Flash + toast when a scan result arrives from parent
-  useEffect(() => {
-    if (!lastScannedCode) return;
-    const color = lastScanFound ? COLORS.success : COLORS.error;
-    setFlashColor(color);
-    setShowToast(true);
-    setToastCode(lastScannedCode);
-    setToastFound(!!lastScanFound);
-    if ("vibrate" in navigator) {
-      if (lastScanFound) {
-        navigator.vibrate([200]);
-      } else {
-        navigator.vibrate([100, 50, 100, 50, 100]);
-      }
-    }
-    const flashTimer = setTimeout(() => setFlashColor(null), 1200);
-    const toastTimer = setTimeout(() => setShowToast(false), 2500);
-    return () => { clearTimeout(flashTimer); clearTimeout(toastTimer); };
-  }, [lastScannedCode, lastScanFound]);
-
-  // Start camera (just the video feed, no auto-scanning)
-  useEffect(() => {
-    if (!isActive) {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-        scannerRef.current = null;
-      }
-      return;
-    }
-
-    let cancelled = false;
-
-    const startCamera = async () => {
-      setIsStarting(true);
-      setCameraError("");
-      try {
-        // Request highest resolution available for better barcode detection
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: "environment",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 },
-          },
-          audio: false,
-        });
-
-        if (cancelled) {
-          stream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-
-        streamRef.current = stream;
-
-        // Try to enable autofocus and continuous focus if supported
-        const videoTrack = stream.getVideoTracks()[0];
-        if (videoTrack) {
-          try {
-            const capabilities = videoTrack.getCapabilities() as any;
-            if (capabilities?.focusMode?.includes("continuous")) {
-              await videoTrack.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] });
-            }
-          } catch {
-            // Focus control not supported — that's fine
-          }
-        }
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          await videoRef.current.play();
-        }
-
-        const canvas = document.createElement("canvas");
-        canvasRef.current = canvas;
-
-        const hiddenDiv = document.getElementById(scannerDivId);
-        if (hiddenDiv) {
-          const scanner = new Html5Qrcode(scannerDivId);
-          scannerRef.current = scanner;
-        }
-
-        setIsStarting(false);
-      } catch (error) {
-        if (!cancelled) {
-          setIsStarting(false);
-          const message = (error as Error)?.message || String(error);
-          if (message.includes("Permission") || message.includes("NotAllowed")) {
-            setCameraError("Camera permission denied. Please allow camera access in your browser settings.");
-          } else if (message.includes("NotFound") || message.includes("DevicesNotFound")) {
-            setCameraError("No camera found on this device.");
-          } else {
-            setCameraError(`Camera error: ${message}`);
-          }
-        }
-      }
-    };
-
-    startCamera();
-
-    return () => {
-      cancelled = true;
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((track) => track.stop());
-        streamRef.current = null;
-      }
-      if (scannerRef.current) {
-        scannerRef.current.clear();
-        scannerRef.current = null;
-      }
-    };
-  }, [isActive, scannerDivId]);
-
-  // Helper: attempt to decode a single frame using both detection methods
-  const decodeFrame = useCallback(async (cvs: HTMLCanvasElement): Promise<string | null> => {
-    // Try native BarcodeDetector first (best on iOS Safari & Chrome)
-    if ("BarcodeDetector" in window) {
-      try {
-        const detector = new (window as any).BarcodeDetector({
-          formats: ["qr_code", "code_128", "code_39", "ean_13", "ean_8", "upc_a", "upc_e", "codabar", "itf", "data_matrix", "aztec", "pdf417"],
-        });
-        const barcodes = await detector.detect(cvs);
-        if (barcodes.length > 0 && barcodes[0].rawValue) {
-          return barcodes[0].rawValue;
-        }
-      } catch {
-        // Fall through
-      }
-    }
-
-    // Fallback: html5-qrcode with PNG blob
-    if (scannerRef.current) {
-      try {
-        const blob = await new Promise<Blob>((resolve) => {
-          cvs.toBlob((result) => resolve(result!), "image/png");
-        });
-        const file = new File([blob], "frame.png", { type: "image/png" });
-        const result = await scannerRef.current.scanFileV2(file, true);
-        if (result.decodedText) return result.decodedText;
-      } catch {
-        // No barcode found
-      }
-    }
-
-    return null;
-  }, []);
-
-  // Tap to scan: captures multiple frames rapidly for better detection
-  const handleTapToScan = useCallback(async () => {
-    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) return;
-    if (isScanning) return;
-
-    setIsScanning(true);
-    const video = videoRef.current;
-    const cvs = canvasRef.current;
-    const ctx = cvs.getContext("2d");
-    if (!ctx) { setIsScanning(false); return; }
-
-    // Try up to 6 frames over ~1.2 seconds for best chance of detection
-    const maxAttempts = 6;
-    const delayBetweenFrames = 200;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      cvs.width = video.videoWidth;
-      cvs.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, cvs.width, cvs.height);
-
-      const result = await decodeFrame(cvs);
-      if (result) {
-        onScanSuccessRef.current(result);
-        setIsScanning(false);
-        return;
-      }
-
-      // Wait briefly before next frame capture (lets autofocus adjust)
-      if (attempt < maxAttempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, delayBetweenFrames));
-      }
-    }
-
-    // All attempts failed
-    setFlashColor(COLORS.warning);
-    setShowToast(true);
-    setToastCode("No barcode detected — try moving closer");
-    setToastFound(false);
-    if ("vibrate" in navigator) navigator.vibrate([50, 30, 50]);
-    setTimeout(() => { setFlashColor(null); }, 800);
-    setTimeout(() => { setShowToast(false); }, 1500);
-    setIsScanning(false);
-  }, [isScanning, decodeFrame]);
-
-  if (!isActive) return null;
-
-  const borderColor = flashColor || accentColor;
-
-  return (
-    <div
-      onClick={handleTapToScan}
-      style={{
-        marginBottom: "16px",
-        borderRadius: "16px",
-        overflow: "hidden",
-        border: `3px solid ${borderColor}`,
-        backgroundColor: "#000",
-        position: "relative",
-        transition: "border-color 0.2s ease",
-        cursor: "pointer",
-        WebkitTapHighlightColor: "transparent",
-        userSelect: "none",
-      }}
-    >
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        style={{
-          width: "100%",
-          height: "auto",
-          minHeight: "280px",
-          maxHeight: "350px",
-          objectFit: "cover",
-          display: "block",
-          borderRadius: "13px",
-          pointerEvents: "none",
-        }}
-      />
-      <div id={scannerDivId} style={{ display: "none" }} />
-
-      {/* Flash overlay on scan */}
-      {flashColor && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            backgroundColor: flashColor + "25",
-            pointerEvents: "none",
-            borderRadius: "13px",
-            animation: "cameraFlash 0.5s ease-out",
-          }}
-        />
-      )}
-
-      {/* Scan result toast overlay */}
-      {showToast && toastCode && (
-        <div
-          style={{
-            position: "absolute",
-            top: "12px",
-            left: "12px",
-            right: "12px",
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            padding: "12px 16px",
-            borderRadius: "12px",
-            backgroundColor: toastCode.startsWith("No barcode")
-              ? "rgba(245, 158, 11, 0.95)"
-              : toastFound ? "rgba(16, 185, 129, 0.95)" : "rgba(239, 68, 68, 0.95)",
-            color: "#fff",
-            animation: "slideIn 0.3s ease-out",
-            zIndex: 10,
-            pointerEvents: "none",
-          }}
-        >
-          {toastCode.startsWith("No barcode") ? (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
-            </svg>
-          ) : toastFound ? (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z" />
-            </svg>
-          ) : (
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z" />
-            </svg>
-          )}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: "14px", fontWeight: "700" }}>
-              {toastCode.startsWith("No barcode") ? toastCode : toastFound ? "Found!" : "Not in inventory"}
-            </div>
-            {!toastCode.startsWith("No barcode") && (
-              <div style={{ fontSize: "12px", opacity: 0.9, fontFamily: "monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {toastCode}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {cameraError ? (
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            backgroundColor: "rgba(0,0,0,0.85)",
-            color: "#ff6b6b",
-            padding: "16px 20px",
-            borderRadius: "12px",
-            fontSize: "13px",
-            fontWeight: "500",
-            textAlign: "center",
-            maxWidth: "80%",
-          }}
-        >
-          {cameraError}
-        </div>
-      ) : isStarting ? (
-        <div
-          style={{
-            position: "absolute",
-            top: "50%",
-            left: "50%",
-            transform: "translate(-50%, -50%)",
-            color: "#fff",
-            fontSize: "14px",
-            fontWeight: "500",
-          }}
-        >
-          Starting camera...
-        </div>
-      ) : (
-        <div
-          style={{
-            position: "absolute",
-            bottom: "12px",
-            left: "50%",
-            transform: "translateX(-50%)",
-            backgroundColor: isScanning ? "rgba(99, 102, 241, 0.9)" : "rgba(0,0,0,0.6)",
-            color: "#fff",
-            padding: "10px 20px",
-            borderRadius: "24px",
-            fontSize: "14px",
-            fontWeight: "600",
-            pointerEvents: "none",
-            backdropFilter: "blur(4px)",
-            transition: "background-color 0.2s ease",
-          }}
-        >
-          {isScanning ? "Scanning... hold steady" : "Tap to Scan"}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ============================================================
-// Scanner Input with Camera Toggle
-// ============================================================
-interface ScannerInputProps {
-  scannerValue: string;
-  onScannerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  onScannerKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onCameraScan: (code: string) => void;
-  handScannerInputRef: React.RefObject<HTMLInputElement | null>;
-  placeholder?: string;
-  accentColor?: string;
-  inputStyle?: React.CSSProperties;
-  lastScannedCode?: string;
-  lastScanFound?: boolean;
-}
-
-const ScannerInput: React.FC<ScannerInputProps> = ({
-  scannerValue,
-  onScannerChange,
-  onScannerKeyDown,
-  onCameraScan,
-  handScannerInputRef,
-  placeholder = "Ready to scan... (press Enter after scan)",
-  accentColor = COLORS.primary,
-  inputStyle = {},
-  lastScannedCode,
-  lastScanFound,
-}) => {
-  const [cameraMode, setCameraMode] = useState(false);
-
-  return (
-    <div>
-      <div style={{ display: "flex", gap: "8px", marginBottom: "10px" }}>
-        <button
-          onClick={() => setCameraMode(false)}
-          style={{
-            flex: 1,
-            padding: "10px 16px",
-            fontSize: "13px",
-            fontWeight: "600",
-            borderRadius: "10px",
-            border: `2px solid ${!cameraMode ? accentColor : COLORS.border}`,
-            backgroundColor: !cameraMode ? accentColor + "15" : COLORS.surface,
-            color: !cameraMode ? accentColor : COLORS.textSecondary,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            transition: "all 0.2s ease",
-          }}
-        >
-          <KeyboardIcon /> Manual / Scanner
-        </button>
-        <button
-          onClick={() => setCameraMode(true)}
-          style={{
-            flex: 1,
-            padding: "10px 16px",
-            fontSize: "13px",
-            fontWeight: "600",
-            borderRadius: "10px",
-            border: `2px solid ${cameraMode ? accentColor : COLORS.border}`,
-            backgroundColor: cameraMode ? accentColor + "15" : COLORS.surface,
-            color: cameraMode ? accentColor : COLORS.textSecondary,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            gap: "8px",
-            transition: "all 0.2s ease",
-          }}
-        >
-          <CameraIcon /> Phone Camera
-        </button>
-      </div>
-
-      {cameraMode ? (
-        <CameraScanner
-          onScanSuccess={onCameraScan}
-          isActive={cameraMode}
-          accentColor={accentColor}
-          lastScannedCode={lastScannedCode}
-          lastScanFound={lastScanFound}
-        />
-      ) : (
-        <input
-          ref={handScannerInputRef}
-          type="text"
-          aria-label="Scanner input"
-          value={scannerValue}
-          onChange={onScannerChange}
-          onKeyDown={onScannerKeyDown}
-          placeholder={placeholder}
-          autoComplete="off"
-          spellCheck={false}
-          style={{
-            width: "100%",
-            padding: "14px",
-            fontSize: "15px",
-            borderRadius: "12px",
-            border: `2px solid ${accentColor}`,
-            backgroundColor: COLORS.surface,
-            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
-            boxShadow: `0 0 0 3px ${accentColor}15`,
-            boxSizing: "border-box",
-            marginBottom: "16px",
-            ...inputStyle,
-          }}
-        />
-      )}
-    </div>
-  );
-};
 
 const CloudSyncIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -2216,7 +1707,6 @@ interface PickRunViewProps {
   scannerValue: string;
   onScannerChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onScannerKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => void;
-  onCameraScan: (code: string) => void;
   handScannerInputRef: React.RefObject<HTMLInputElement | null>;
   lastScannedCode: string;
   lastScanFound: boolean;
@@ -2235,7 +1725,6 @@ const PickRunView: React.FC<PickRunViewProps> = ({
   scannerValue,
   onScannerChange,
   onScannerKeyDown,
-  onCameraScan,
   handScannerInputRef,
   lastScannedCode,
   lastScanFound,
@@ -2424,16 +1913,27 @@ const PickRunView: React.FC<PickRunViewProps> = ({
       </div>
 
       <div style={{ marginBottom: "16px" }}>
-        <ScannerInput
-          scannerValue={scannerValue}
-          onScannerChange={onScannerChange}
-          onScannerKeyDown={onScannerKeyDown}
-          onCameraScan={onCameraScan}
-          handScannerInputRef={handScannerInputRef}
+        <input
+          ref={handScannerInputRef}
+          type="text"
+          aria-label="Pick run scanner input"
+          value={scannerValue}
+          onChange={onScannerChange}
+          onKeyDown={onScannerKeyDown}
           placeholder="Scan items as you walk..."
-          accentColor={COLORS.pickRun}
-          lastScannedCode={lastScannedCode}
-          lastScanFound={lastScanFound}
+          autoComplete="off"
+          spellCheck={false}
+          style={{
+            width: "100%",
+            padding: "14px",
+            fontSize: "15px",
+            borderRadius: "12px",
+            border: `2px solid ${COLORS.pickRun}`,
+            backgroundColor: COLORS.surface,
+            fontFamily: "'SF Mono', Monaco, 'Cascadia Code', monospace",
+            boxShadow: "0 0 0 3px rgba(249, 115, 22, 0.15)",
+            boxSizing: "border-box",
+          }}
         />
       </div>
 
@@ -3862,7 +3362,6 @@ export default function InventoryScanner() {
         @keyframes slideIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.02); } 100% { transform: scale(1); } }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        @keyframes cameraFlash { 0% { opacity: 0.6; } 100% { opacity: 0; } }
       `;
       document.head.appendChild(style);
     }
@@ -3989,7 +3488,6 @@ export default function InventoryScanner() {
             scannerValue={scannerValue}
             onScannerChange={(e) => setScannerValue(e.target.value)}
             onScannerKeyDown={handleHandScannerKeyDown}
-            onCameraScan={processScannedCode}
             handScannerInputRef={handScannerInputRef}
             lastScannedCode={lastScannedCode}
             lastScanFound={lastScanFound}
@@ -4023,16 +3521,17 @@ export default function InventoryScanner() {
               <SearchIcon /> Scan Items
             </div>
 
-            <ScannerInput
-              scannerValue={scannerValue}
-              onScannerChange={(e) => setScannerValue(e.target.value)}
-              onScannerKeyDown={handleHandScannerKeyDown}
-              onCameraScan={processScannedCode}
-              handScannerInputRef={handScannerInputRef}
+            <input
+              ref={handScannerInputRef}
+              type="text"
+              aria-label="Hand scanner input"
+              value={scannerValue}
+              onChange={(e) => setScannerValue(e.target.value)}
+              onKeyDown={handleHandScannerKeyDown}
               placeholder="Ready to scan... (press Enter after scan)"
-              accentColor={COLORS.primary}
-              lastScannedCode={lastScannedCode}
-              lastScanFound={lastScanFound}
+              autoComplete="off"
+              spellCheck={false}
+              style={styles.scannerInput}
             />
 
             <SimpleScanResult scannedCode={lastScannedCode} found={lastScanFound} />

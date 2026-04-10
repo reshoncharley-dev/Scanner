@@ -19,26 +19,3 @@ body {
   margin: 0;
   padding: 0;
 }
-
-/* Camera scanner: ensure video preview is always visible */
-[id^="camera-scanner-"] video {
-  width: 100% !important;
-  height: auto !important;
-  min-height: 280px;
-  object-fit: cover !important;
-  display: block !important;
-}
-
-[id^="camera-scanner-"] > div {
-  display: block !important;
-  overflow: hidden;
-}
-
-/* Hide the html5-qrcode branding/info elements */
-[id^="camera-scanner-"] img[alt="Info icon"] {
-  display: none !important;
-}
-
-[id^="camera-scanner-"] > div > span {
-  display: none !important;
-}

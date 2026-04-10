@@ -768,7 +768,33 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
   const containerRef = useRef<HTMLDivElement>(null);
   const lastScannedRef = useRef<string>("");
   const lastScannedTimeRef = useRef<number>(0);
-  const scannerElementId = useRef(`camera-scanner-${Math.random().toString(36).slice(2, 9)}`);
+  const [scannerElementId] = useState(`camera-scanner-${Math.random().toString(36).slice(2, 9)}`);
+  const [cameraError, setCameraError] = useState<string>("");
+
+  // Inject styles to make the html5-qrcode video preview visible
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const styleId = "camera-scanner-styles";
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      #${scannerElementId} video {
+        width: 100% !important;
+        height: auto !important;
+        object-fit: cover !important;
+        border-radius: 12px;
+      }
+      #${scannerElementId} img[alt="Info icon"] { display: none !important; }
+      #${scannerElementId} span { display: none !important; }
+      #${scannerElementId} > div:first-child { display: block !important; }
+    `;
+    document.head.appendChild(style);
+    return () => {
+      const existing = document.getElementById(styleId);
+      if (existing) existing.remove();
+    };
+  }, [scannerElementId]);
 
   useEffect(() => {
     if (!isActive) {
@@ -781,21 +807,24 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
       return;
     }
 
+    let cancelled = false;
+
     const startScanner = async () => {
       try {
-        const scanner = new Html5Qrcode(scannerElementId.current);
+        setCameraError("");
+        const scanner = new Html5Qrcode(scannerElementId);
         scannerRef.current = scanner;
 
         await scanner.start(
           { facingMode: "environment" },
           {
-            fps: 10,
-            qrbox: { width: 250, height: 150 },
+            fps: 15,
+            qrbox: { width: 280, height: 160 },
             aspectRatio: 1.5,
+            disableFlip: false,
           },
           (decodedText) => {
             const now = Date.now();
-            // Debounce: ignore same code scanned within 2 seconds
             if (decodedText === lastScannedRef.current && now - lastScannedTimeRef.current < 2000) {
               return;
             }
@@ -807,13 +836,24 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
           () => {}
         );
       } catch (error) {
-        console.warn("Camera scanner failed to start:", error);
+        if (!cancelled) {
+          const message = (error as Error)?.message || String(error);
+          if (message.includes("Permission")) {
+            setCameraError("Camera permission denied. Please allow camera access and try again.");
+          } else if (message.includes("NotFound") || message.includes("Requested device not found")) {
+            setCameraError("No camera found on this device.");
+          } else {
+            setCameraError(`Camera error: ${message}`);
+          }
+          console.warn("Camera scanner failed to start:", error);
+        }
       }
     };
 
     startScanner();
 
     return () => {
+      cancelled = true;
       if (scannerRef.current) {
         scannerRef.current.stop().catch(() => {}).finally(() => {
           scannerRef.current?.clear();
@@ -821,7 +861,7 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
         });
       }
     };
-  }, [isActive, onScanSuccess]);
+  }, [isActive, onScanSuccess, scannerElementId]);
 
   if (!isActive) return null;
 
@@ -838,26 +878,52 @@ const CameraScanner: React.FC<CameraScannerProps> = ({ onScanSuccess, isActive, 
       }}
     >
       <div
-        id={scannerElementId.current}
-        style={{ width: "100%", minHeight: "240px" }}
-      />
-      <div
+        id={scannerElementId}
         style={{
-          position: "absolute",
-          bottom: "8px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          backgroundColor: "rgba(0,0,0,0.6)",
-          color: "#fff",
-          padding: "6px 14px",
-          borderRadius: "20px",
-          fontSize: "12px",
-          fontWeight: "500",
-          pointerEvents: "none",
+          width: "100%",
+          minHeight: "300px",
+          position: "relative",
         }}
-      >
-        Point camera at barcode
-      </div>
+      />
+      {cameraError ? (
+        <div
+          style={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            backgroundColor: "rgba(0,0,0,0.8)",
+            color: "#ff6b6b",
+            padding: "16px 20px",
+            borderRadius: "12px",
+            fontSize: "13px",
+            fontWeight: "500",
+            textAlign: "center",
+            maxWidth: "80%",
+          }}
+        >
+          {cameraError}
+        </div>
+      ) : (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "12px",
+            left: "50%",
+            transform: "translateX(-50%)",
+            backgroundColor: "rgba(0,0,0,0.6)",
+            color: "#fff",
+            padding: "8px 16px",
+            borderRadius: "20px",
+            fontSize: "12px",
+            fontWeight: "500",
+            pointerEvents: "none",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          Point camera at barcode
+        </div>
+      )}
     </div>
   );
 };
